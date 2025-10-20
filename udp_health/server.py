@@ -16,6 +16,7 @@ class UDPHealthServer:
         LOGGER.info("UDP health server listening on %s:%s", self.config.host, self.config.udp_port)
 
     def serve_forever(self, should_stop) -> None:
+        # Simple loop: read datagram, respond if payload is PING
         while not should_stop():
             try:
                 self._sock.settimeout(1.0)
@@ -27,7 +28,7 @@ class UDPHealthServer:
 
             payload = data.decode("utf-8", errors="ignore").strip().upper()
             if not payload:
-                # Ignore empty datagrams (common with some nc variants)
+                # Ignore empty datagrams (some nc variants emit these)
                 continue
             if payload == "PING":
                 ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

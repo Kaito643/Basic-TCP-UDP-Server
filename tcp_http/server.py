@@ -12,6 +12,7 @@ LOGGER = get_logger("tcp_http.server")
 class ThreadedHTTPServer:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
+        # Simple thread-per-connection model with SO_REUSEADDR for quick restarts
         self._sock: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._threads: list[threading.Thread] = []
@@ -21,12 +22,14 @@ class ThreadedHTTPServer:
         self._sock.bind((self.config.host, self.config.tcp_port))
         self._sock.listen(128)
         LOGGER.info("HTTP server listening on %s:%s", self.config.host, self.config.tcp_port)
+        # Accept loop runs in a daemon thread; main thread handles shutdown
         threading.Thread(target=self._accept_loop, daemon=True).start()
 
     def _accept_loop(self) -> None:
         while not self._closing.is_set():
             try:
                 client, addr = self._sock.accept()
+                # Hand off each connection to a dedicated daemon thread
                 t = threading.Thread(target=self._handle_client, args=(client, addr), daemon=True)
                 t.start()
                 self._threads.append(t)
@@ -34,6 +37,7 @@ class ThreadedHTTPServer:
                 break
 
     def _handle_client(self, client: socket.socket, addr: Tuple[str, int]) -> None:
+        # Per-connection read timeout to avoid hanging connections
         client.settimeout(self.config.read_timeout_seconds)
         try:
             buf = client.makefile("rb")
@@ -62,6 +66,7 @@ class ThreadedHTTPServer:
             status, reason, content_type, body = response
             headers = {"Content-Type": content_type}
             if method == "HEAD":
+                # For HEAD, advertise the GET body length while sending no body
                 headers["Content-Length"] = str(len(route_request("GET", path, self.config)[3]))
             resp = build_response(status, reason, headers, body)
             client.sendall(resp)
@@ -77,6 +82,7 @@ class ThreadedHTTPServer:
             except Exception:
                 pass
         finally:
+            # Ensure socket is closed to free resources promptly
             try:
                 client.shutdown(socket.SHUT_RDWR)
             except Exception:
@@ -89,6 +95,7 @@ class ThreadedHTTPServer:
             self._sock.close()
         except Exception:
             pass
+        # Join worker threads briefly for a graceful stop
         for t in self._threads:
             if t.is_alive():
                 t.join(timeout=1.0)

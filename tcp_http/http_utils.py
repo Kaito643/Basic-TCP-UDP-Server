@@ -7,7 +7,10 @@ class HTTPParseError(Exception):
     pass
 
 def parse_http_request(stream: io.BufferedReader, max_request_line: int, max_headers: int, read_timeout: int) -> Tuple[str, str, str, Dict[str, str]]:
+    # Prime the buffer; avoid blocking on first read in some environments
     stream.peek(1)
+
+    # Read request line with an upper bound to avoid abuse (very long lines)
     request_line = stream.readline(max_request_line + 1)
     if not request_line:
         raise HTTPParseError("Empty request")
@@ -18,8 +21,10 @@ def parse_http_request(stream: io.BufferedReader, max_request_line: int, max_hea
         request_line_str = request_line.decode("iso-8859-1").rstrip("\r\n")
         method, path, version = request_line_str.split(" ", 2)
     except Exception as exc:
+        # Malformed request line → 400 later
         raise HTTPParseError(f"Bad request line: {request_line!r}") from exc
 
+    # Collect headers with a total size cap to prevent header bombing
     headers_bytes = bytearray()
     while True:
         line = stream.readline(max_headers + 1)
@@ -39,14 +44,19 @@ def parse_http_request(stream: io.BufferedReader, max_request_line: int, max_hea
             key, value = raw.decode("iso-8859-1").split(":", 1)
             headers[key.strip().lower()] = value.strip()
         except ValueError:
+            # Skip malformed header lines rather than failing hard
             continue
 
     return method.upper(), path, version, headers
 
 def build_response(status_code: int, reason: str, headers: Dict[str, str], body: bytes) -> bytes:
     status_line = f"HTTP/1.1 {status_code} {reason}".encode("ascii") + CRLF
+
+    # Always send Content-Length for clarity and client compatibility
     if "Content-Length" not in headers and "content-length" not in {k.lower(): v for k, v in headers.items()}:
         headers["Content-Length"] = str(len(body))
+
+    # Default to closing the connection (simpler server model)
     if "Connection" not in headers:
         headers["Connection"] = "close"
 
