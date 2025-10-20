@@ -105,16 +105,5 @@ PY
   - Firewall/Network ayarlarını kontrol edin
   - IPv4 adresini açık yazın: `127.0.0.1`
 
-## GitHub’a Gönderme
-```bash
-cd "HTTP Server"
-git init
-git add .
-git commit -m "TCP HTTP + UDP health servers (stdlib)"
-git branch -M main
-git remote add origin <REMOTE_URL>
-git push -u origin main
-```
-
 ## Güvenlik Notu
 Bu proje eğitim içindir. Üretim için ek güvenlik/sertleştirme, hata yönetimi, kaynak sınırları ve testler gereklidir.
